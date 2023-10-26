@@ -47,52 +47,61 @@ def main():
     # camera = cv2.VideoCapture('/home/plx/datasets/fall_detection/test_videos/outside1.mp4')
     # camera = cv2.VideoCapture(0)
     
-    fps_total = 0
-    ms_total = 0
-    tmp_num = 0
-    count_num = 1000
+    print(f'Camera FPS: {int(round(camera.get(cv2.CAP_PROP_FPS)))}')
+    print(f'Camera Width: {int(round(camera.get(cv2.CAP_PROP_FRAME_WIDTH)))}')
+    print(f'Camera Height: {int(round(camera.get(cv2.CAP_PROP_FRAME_HEIGHT)))}')
+    
+    classes = model.dataset_meta['classes']
+    palette = model.dataset_meta['palette']
 
     print('Press "Esc", "q" or "Q" to exit.')
     while True:
-        tmp_num += 1
-        
         t0 = time.time()
         
         ret_val, img = camera.read()
+        if not ret_val:
+            print('can not read frame from camera')
+            break
         
         t1 = time.time()
         result = inference_detector(model, img)
         inference = (time.time() - t1) * 1000
+        
+        pred_instances = result.pred_instances
+        # print(pred_instances)
+        pred_instances = pred_instances[pred_instances.scores > args.score_thr]
+        # print(pred_instances)
+        pred_instances = pred_instances[pred_instances.labels == 0]
+        # print(pred_instances)
+        
+        if 'bboxes' in pred_instances and pred_instances.bboxes.sum() > 0:
+            bboxes = pred_instances.bboxes.detach().cpu().numpy()
+            labels = pred_instances.labels.detach().cpu().numpy()
+            scores = pred_instances.scores.detach().cpu().numpy()
 
-        img = mmcv.imconvert(img, 'bgr', 'rgb')
-        visualizer.add_datasample(
-            name='result',
-            image=img,
-            data_sample=result,
-            draw_gt=False,
-            pred_score_thr=args.score_thr,
-            show=False)
-
-        img = visualizer.get_image()
-        img = mmcv.imconvert(img, 'bgr', 'rgb')
+            for label, bbox, score in zip(labels, bboxes, scores):
+                x1, y1, x2, y2 = [int(round(x)) for x in bbox]
+                
+                img = cv2.rectangle(img, (x1, y1), (x2, y2), color=palette[label], thickness=1)
+                img = cv2.putText(img, 
+                                f'{classes[label]}, {score:.2f}',
+                                (x1, y1 + 20),
+                                fontFace=cv2.FONT_HERSHEY_PLAIN,
+                                fontScale=1,
+                                color=palette[label])
+                
+                
+        
+        # break
         
         fps = 1000 / ((time.time() - t0) * 1000)
         print(f'FPS: {fps:.2f}, Inference time: {inference:.2f}ms')
-        
-        if tmp_num > 100:
-            fps_total += fps
-            ms_total += inference
-            
-            if tmp_num == (count_num + 100):
-                break
         
         cv2.imshow('result', img)
 
         ch = cv2.waitKey(1)
         if ch == 27 or ch == ord('q') or ch == ord('Q'):
             break
-
-    print(f'FPS avg: {fps_total/count_num:.2f}, Inference avg: {ms_total/count_num:.2f}')
 
 if __name__ == '__main__':
     main()
