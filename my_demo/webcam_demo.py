@@ -3,11 +3,9 @@ import argparse
 import time
 
 import cv2
-import mmcv
 import torch
 
 from mmdet.apis import inference_detector, init_detector
-from mmdet.registry import VISUALIZERS
 
 
 def parse_args():
@@ -30,50 +28,45 @@ def main():
     args = parse_args()
 
     # build the model from a config file and a checkpoint file
-    device = torch.device(args.device)
-    model = init_detector(args.config, args.checkpoint, device=device)
-
-    # init visualizer
-    visualizer = VISUALIZERS.build(model.cfg.visualizer)
-    # the dataset_meta is loaded from the checkpoint and
-    # then pass to the model in init_detector
-    visualizer.dataset_meta = model.dataset_meta
+    model = init_detector(args.config, args.checkpoint, device=args.device)
 
     if args.rtsp is not None:
-        camera = cv2.VideoCapture(args.rtsp)
+        cap = cv2.VideoCapture(args.rtsp)
     else:
-        camera = cv2.VideoCapture(args.camera_id)
+        cap = cv2.VideoCapture(args.camera_id)
     
-    # camera = cv2.VideoCapture('/home/plx/datasets/fall_detection/test_videos/outside1.mp4')
-    # camera = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        raise OSError('Can not open camera')
     
-    print(f'Camera FPS: {int(round(camera.get(cv2.CAP_PROP_FPS)))}')
-    print(f'Camera Width: {int(round(camera.get(cv2.CAP_PROP_FRAME_WIDTH)))}')
-    print(f'Camera Height: {int(round(camera.get(cv2.CAP_PROP_FRAME_HEIGHT)))}')
+    print(f'Camera FPS: {int(round(cap.get(cv2.CAP_PROP_FPS)))}')
+    print(f'Camera Width: {int(round(cap.get(cv2.CAP_PROP_FRAME_WIDTH)))}')
+    print(f'Camera Height: {int(round(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))}')
     
     classes = model.dataset_meta['classes']
     palette = model.dataset_meta['palette']
+    
+    # cv2.namedWindow('result', cv2.WINDOW_NORMAL)
+    # cv2.resizeWindow('result', 640, 480)
 
     print('Press "Esc", "q" or "Q" to exit.')
     while True:
         t0 = time.time()
         
-        ret_val, img = camera.read()
+        ret_val, frame = cap.read()
         if not ret_val:
             print('can not read frame from camera')
             break
         
         t1 = time.time()
-        result = inference_detector(model, img)
+        result = inference_detector(model, frame)
         inference = (time.time() - t1) * 1000
         
+        # get pred result
         pred_instances = result.pred_instances
-        # print(pred_instances)
         pred_instances = pred_instances[pred_instances.scores > args.score_thr]
-        # print(pred_instances)
-        pred_instances = pred_instances[pred_instances.labels == 0]
-        # print(pred_instances)
+        # pred_instances = pred_instances[pred_instances.labels == 0]
         
+        # draw bboxes
         if 'bboxes' in pred_instances and pred_instances.bboxes.sum() > 0:
             bboxes = pred_instances.bboxes.detach().cpu().numpy()
             labels = pred_instances.labels.detach().cpu().numpy()
@@ -82,26 +75,25 @@ def main():
             for label, bbox, score in zip(labels, bboxes, scores):
                 x1, y1, x2, y2 = [int(round(x)) for x in bbox]
                 
-                img = cv2.rectangle(img, (x1, y1), (x2, y2), color=palette[label], thickness=1)
-                img = cv2.putText(img, 
+                frame = cv2.rectangle(frame, (x1, y1), (x2, y2), color=palette[label], thickness=1)
+                frame = cv2.putText(frame, 
                                 f'{classes[label]}, {score:.2f}',
                                 (x1, y1 + 20),
                                 fontFace=cv2.FONT_HERSHEY_PLAIN,
                                 fontScale=1,
                                 color=palette[label])
                 
-                
-        
-        # break
-        
         fps = 1000 / ((time.time() - t0) * 1000)
         print(f'FPS: {fps:.2f}, Inference time: {inference:.2f}ms')
         
-        cv2.imshow('result', img)
+        cv2.imshow('result', frame)
 
         ch = cv2.waitKey(1)
         if ch == 27 or ch == ord('q') or ch == ord('Q'):
             break
+    
+    cap.release()
+    cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     main()

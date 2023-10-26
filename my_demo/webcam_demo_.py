@@ -11,12 +11,15 @@ from mmdet.registry import VISUALIZERS
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='MMDetection my video demo')
-    parser.add_argument('video', help='video file')
-    parser.add_argument('config', help='vonfig file')
+    parser = argparse.ArgumentParser(description='MMDetection webcam demo')
+    parser.add_argument('config', help='test config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
     parser.add_argument(
         '--device', type=str, default='cuda:0', help='CPU/CUDA device option')
+    parser.add_argument(
+        '--camera-id', type=int, default=0, help='camera device id')
+    parser.add_argument(
+        '--rtsp', type=str, help='rtsp address')
     parser.add_argument(
         '--score-thr', type=float, default=0.5, help='bbox score threshold')
     args = parser.parse_args()
@@ -36,21 +39,28 @@ def main():
     # then pass to the model in init_detector
     visualizer.dataset_meta = model.dataset_meta
 
-    cap = cv2.VideoCapture(args.video)
-    fps = int(round(cap.get(cv2.CAP_PROP_FPS)))
-    width = int(round(cap.get(cv2.CAP_PROP_FRAME_WIDTH)))
-    height = int(round(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-    fourcc = cap.get(cv2.CAP_PROP_FOURCC)
-    cv2.namedWindow('result', cv2.WINDOW_NORMAL)
-    cv2.resizeWindow('result', 640, 480)
+    # if args.rtsp is not None:
+    #     camera = cv2.VideoCapture(args.rtsp)
+    # else:
+    #     camera = cv2.VideoCapture(args.camera_id)
     
+    # camera = cv2.VideoCapture('/home/plx/datasets/fall_detection/test_videos/outside1.mp4')
+    # camera = cv2.VideoCapture(0)
+    
+    camera = cv2.VideoCapture('/mnt/plx/datasets/fall_detection/test_videos/test.avi')
+    
+    fps_total = 0
+    ms_total = 0
+    tmp_num = 0
+    count_num = 1000
+
     print('Press "Esc", "q" or "Q" to exit.')
     while True:
+        tmp_num += 1
+        
         t0 = time.time()
         
-        ret_val, img = cap.read()
-        if not ret_val:
-            break
+        ret_val, img = camera.read()
         
         t1 = time.time()
         result = inference_detector(model, img)
@@ -67,9 +77,16 @@ def main():
 
         img = visualizer.get_image()
         img = mmcv.imconvert(img, 'bgr', 'rgb')
-
+        
         fps = 1000 / ((time.time() - t0) * 1000)
         print(f'FPS: {fps:.2f}, Inference time: {inference:.2f}ms')
+        
+        if tmp_num > 100:
+            fps_total += fps
+            ms_total += inference
+            
+            if tmp_num == (count_num + 100):
+                break
         
         cv2.imshow('result', img)
 
@@ -77,6 +94,7 @@ def main():
         if ch == 27 or ch == ord('q') or ch == ord('Q'):
             break
 
+    print(f'FPS avg: {fps_total/count_num:.2f}, Inference avg: {ms_total/count_num:.2f}')
 
 if __name__ == '__main__':
     main()
